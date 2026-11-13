@@ -745,7 +745,8 @@
 
   function friendlyError(err) {
     const message = String((err && err.message) || err || "");
-    if (/password|kata sandi|dibatalkan/i.test(message)) {
+    if (/dibatalkan/i.test(message)) return "Konversi dibatalkan karena PDF memerlukan kata sandi.";
+    if (/password|kata sandi/i.test(message)) {
       return "PDF dilindungi kata sandi dan tidak dapat dibuka.";
     }
     if (/Invalid PDF|not a PDF|PDF structure/i.test(message)) {
