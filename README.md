@@ -16,6 +16,7 @@ Konverter **PDF → TXT** gratis yang berjalan sepenuhnya di browser, terinspira
 - **Salin ke papan klip** dengan satu klik.
 - **Encoding** UTF-8 atau UTF-8 dengan BOM (ramah Excel/Notepad lama).
 - **PDF berpassword** didukung (diminta saat konversi).
+- **OCR (pengenalan teks gambar)** — baca PDF scan/foto dengan Tesseract.js, bahasa Indonesia + Inggris, semua di browser.
 - **Responsif & mode gelap** mengikuti preferensi sistem.
 
 ## Menjalankan secara lokal
@@ -56,13 +57,18 @@ vendor/
   pdf.min.js          # PDF.js 3.11.174
   pdf.worker.min.js
   jszip.min.js        # JSZip 3.10.1
+  tesseract.min.js    # Tesseract.js 7.0.0 (mesin OCR)
+  worker.min.js       # Tesseract worker
+  eng.traineddata     # Data bahasa Inggris (OCR)
+  ind.traineddata     # Data bahasa Indonesia (OCR)
 .nojekyll
 ```
 
 ## Batasan
 
-- PDF hasil **pindaian (scan)** tidak memiliki lapisan teks, sehingga hasilnya kosong. Diperlukan OCR (mis. Tesseract) sebelum dikonversi.
-- Kualitas teks bergantung pada bagaimana PDF dibuat. PDF dengan teks sebagai kurva/gambar tidak dapat diekstrak.
+- PDF hasil **pindaian (scan)** tidak memiliki lapisan teks. Aktifkan opsi OCR untuk mengekstrak teks dari halaman gambar. Hasil OCR bergantung pada kualitas gambar dan tidak selalu 100% akurat.
+- OCR memerlukan memori dan CPU yang cukup; file dengan banyak halaman scan akan memakan waktu lebih lama.
+- Kualitas teks bergantung pada bagaimana PDF dibuat. PDF dengan teks sebagai kurva/gambar tanpa lapisan teks tidak dapat diekstrak tanpa OCR.
 - Kinerja dipengaruhi perangkat pengguna untuk file berukuran besar.
 
 ## Lisensi
@@ -73,3 +79,5 @@ Pustaka pihak ketiga:
 
 - **PDF.js** — Apache License 2.0, © Mozilla Foundation
 - **JSZip** — MIT / GPLv3, © Stuart Knightley
+- **Tesseract.js** — Apache License 2.0, © naptha / Tesseract.js project
+- **Data bahasa Tesseract (eng/ind)** — Apache License 2.0, © Tesseract OCR project

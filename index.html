@@ -113,6 +113,32 @@
               <p class="field-help">Mode tata letak menjaga posisi teks seperti aslinya.</p>
             </div>
 
+            <div class="field span-2 ocr-group">
+              <label class="check ocr-check">
+                <input id="ocr-enabled" type="checkbox" />
+                <span>Aktifkan OCR untuk halaman berimage / scan</span>
+              </label>
+              <p class="field-help">Ekstrak teks dari halaman yang berupa gambar (PDF hasil scan) menggunakan OCR.</p>
+            </div>
+
+            <div class="field ocr-lang">
+              <label for="ocr-lang">Bahasa OCR</label>
+              <select id="ocr-lang">
+                <option value="ind+eng" selected>Indonesia + Inggris</option>
+                <option value="ind">Indonesia</option>
+                <option value="eng">Inggris</option>
+              </select>
+              <p class="field-help">Pilih bahasa yang ada pada dokumen untuk hasil OCR yang lebih akurat.</p>
+            </div>
+
+            <div class="field span-2 ocr-group">
+              <label class="check ocr-check">
+                <input id="ocr-force" type="checkbox" />
+                <span>Paksa OCR semua halaman (meski teks ditemukan)</span>
+              </label>
+              <p class="field-help">Hanya disarankan jika hasil ekstraksi normal kurang akurat. OCR lebih lambat.</p>
+            </div>
+
             <div class="field">
               <label for="output-encoding">Encoding file</label>
               <select id="output-encoding">
@@ -219,6 +245,10 @@
           <p>Ya, Anda akan diminta memasukkan kata sandi saat file tersebut dikonversi.</p>
         </details>
         <details>
+          <summary>Apakah OCR bisa membaca PDF scan/foto?</summary>
+          <p>Ya. Aktifkan opsi "OCR untuk halaman berimage / scan", pilih bahasa, lalu konversi. Halaman tanpa teks digital akan dirender sebagai gambar dan dibaca oleh mesin OCR (Tesseract.js). Hasil OCR tidak selalu 100% akurat tergantung kualitas gambar.</p>
+        </details>
+        <details>
           <summary>Apakah ini gratis?</summary>
           <p>Gratis sepenuhnya dan tanpa registrasi. Proyek ini bersifat open source dan dapat Anda jalankan sendiri.</p>
         </details>
@@ -262,6 +292,8 @@
 
   <script src="vendor/pdf.min.js"></script>
   <script src="vendor/jszip.min.js"></script>
+  <script src="vendor/tesseract.min.js"></script>
+  <script src="vendor/worker.min.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
 </html>

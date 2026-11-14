@@ -1,6 +1,6 @@
 /* =========================================================
    PDF → TXT — client-side converter
-   Powered by PDF.js & JSZip
+   Powered by PDF.js, JSZip & Tesseract.js (OCR)
    ========================================================= */
 (() => {
   "use strict";
@@ -8,6 +8,52 @@
   const pdfjsLib = window.pdfjsLib;
   if (pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
+  }
+
+  const Tesseract = window.Tesseract;
+  let ocrWorker = null;
+  let ocrWorkerReady = false;
+
+  async function ensureOcrWorker(lang) {
+    if (!Tesseract) return null;
+    if (ocrWorker && ocrWorkerReady) {
+      // Ganti bahasa jika berbeda
+      const curLang = ocrWorker.lang || "";
+      if (curLang !== lang) {
+        try {
+          await ocrWorker.terminate();
+        } catch (_) { /* ignore */ }
+        ocrWorker = null;
+        ocrWorkerReady = false;
+      } else {
+        return ocrWorker;
+      }
+    }
+    if (ocrWorker) return ocrWorker;
+
+    try {
+      ocrWorker = await Tesseract.createWorker(lang, {
+        cachePath: "",
+        cacheMethod: "none",
+      });
+      ocrWorkerReady = true;
+      return ocrWorker;
+    } catch (err) {
+      console.error("Tesseract worker gagal dimuat:", err);
+      ocrWorker = null;
+      ocrWorkerReady = false;
+      return null;
+    }
+  }
+
+  async function terminateOcrWorker() {
+    if (ocrWorker) {
+      try {
+        await ocrWorker.terminate();
+      } catch (_) { /* ignore */ }
+    }
+    ocrWorker = null;
+    ocrWorkerReady = false;
   }
 
   const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB (peringatan saja)
@@ -37,6 +83,10 @@
   const removeEmptyCheck = $("remove-empty");
   const joinHyphenCheck = $("join-hyphen");
 
+  const ocrEnabledCheck = $("ocr-enabled");
+  const ocrLangSelect = $("ocr-lang");
+  const ocrForceCheck = $("ocr-force");
+
   const resultsPanel = $("results-panel");
   const resultsList = $("results-list");
   const downloadAllBtn = $("download-all");
@@ -52,7 +102,7 @@
   const pwCancel = $("pw-cancel");
 
   /* ---------------- State ---------------- */
-  /** @type {Array<{id:string,file:File,name:string,size:number,status:'ready'|'working'|'done'|'error',text?:string,error?:string,pages?:number,pageCount?:number,scanned?:boolean,truncated?:boolean}>} */
+  /** @type {Array<{id:string,file:File,name:string,size:number,status:'ready'|'working'|'done'|'error',text?:string,error?:string,pageCount?:number,totalPages?:number,scanned?:boolean,truncated?:boolean,usedOcr?:number}>} */
   let files = [];
   let isConverting = false;
   let idSeq = 0;
@@ -255,7 +305,7 @@
       case "done":
         return {
           cls: "is-done",
-          label: f.scanned ? "Tidak ada teks" : `Selesai • ${f.pageCount || 0} hal.`,
+          label: f.scanned ? "Tidak ada teks" : `Selesai • ${f.pageCount || 0} hal.${f.usedOcr ? ` • OCR ${f.usedOcr} hal.` : ""}`,
         };
       case "error":
         return { cls: "is-error", label: "Gagal" };
@@ -363,7 +413,7 @@
     const stats = document.createElement("span");
     stats.className = "result-stats";
     const text = f.text || "";
-    stats.textContent = `${wordCount(text).toLocaleString("id-ID")} kata • ${text.length.toLocaleString("id-ID")} karakter • ${f.pageCount || 0} halaman`;
+    stats.textContent = `${wordCount(text).toLocaleString("id-ID")} kata • ${text.length.toLocaleString("id-ID")} karakter • ${f.pageCount || 0} halaman${f.usedOcr ? ` • OCR ${f.usedOcr}` : ""}`;
     title.append(strong, stats);
 
     const buttons = document.createElement("div");
@@ -412,7 +462,9 @@
       const note = document.createElement("div");
       note.className = "result-note";
       note.textContent =
-        "Tidak ada teks terdeteksi. PDF ini kemungkinan hasil pindaian (gambar) dan memerlukan OCR.";
+        f.usedOcr > 0
+          ? "Tidak ada teks digital. Teks diambil melalui OCR (pengenalan gambar). Periksa hasilnya karena OCR tidak selalu 100% akurat."
+          : "Tidak ada teks terdeteksi. PDF ini kemungkinan hasil pindaian (gambar) dan memerlukan OCR. Aktifkan opsi OCR lalu konversi ulang.";
       card.appendChild(note);
     }
 
@@ -477,6 +529,9 @@
       layout: textModeSelect.value === "layout",
       removeEmptyLines: removeEmptyCheck.checked,
       joinHyphen: joinHyphenCheck.checked,
+      ocrEnabled: ocrEnabledCheck.checked,
+      ocrLang: ocrLangSelect.value,
+      ocrForce: ocrForceCheck.checked,
     };
   }
 
@@ -602,6 +657,42 @@
     return marker.replace(/\{n\}/g, String(pageNumber));
   }
 
+  /* ---------------- OCR helpers ---------------- */
+
+  function renderPageToCanvas(page, scale = 2.0) {
+    return new Promise((resolve, reject) => {
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext("2d");
+      // Latar putih agar Tesseract tidak terganggu transparansi
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const renderTask = page.render({ canvasContext: ctx, viewport: viewport });
+      renderTask.promise.then(() => resolve(canvas)).catch(reject);
+    });
+  }
+
+  async function ocrPage(canvas, lang) {
+    if (!Tesseract) throw new Error("Tesseract.js tidak tersedia.");
+    const result = await Tesseract.recognize(canvas, lang);
+    const data = result.data || {};
+    return {
+      text: data.text || "",
+      confidence: Math.round((data.confidence || 0) * 100),
+      words: data.words || [],
+      lines: data.lines || [],
+    };
+  }
+
+  function hasMeaningfulText(text) {
+    if (!text) return false;
+    const stripped = text.replace(/\s+/g, "").replace(/[^\w\s]/g, "");
+    return stripped.length > 0;
+  }
+
   async function extractPdf(file, options, onProgress) {
     const buffer = await file.arrayBuffer();
 
@@ -634,21 +725,62 @@
     try {
       const pageNumbers = parsePageRange(options.range, pdf.numPages);
       const parts = [];
+      let ocrPages = 0;
 
       for (let i = 0; i < pageNumbers.length; i++) {
         const pageNumber = pageNumbers[i];
         const page = await pdf.getPage(pageNumber);
         const content = await page.getTextContent({ includeMarkedContent: false });
         const text = textItemsToText(content.items, options);
+
+        let usedOcr = false;
+        let ocrText = text;
+
+        const doOcr =
+          options.ocrEnabled &&
+          Tesseract &&
+          (options.ocrForce || !hasMeaningfulText(text));
+
+        if (doOcr) {
+          try {
+            if (typeof onProgress === "function") {
+              onProgress(
+                i + 1,
+                pageNumbers.length,
+                pageNumber,
+                `OCR halaman ${pageNumber} (memuat mesin…)`
+              );
+            }
+            const canvas = await renderPageToCanvas(page, 2.0);
+            const ocrResult = await ocrPage(canvas, options.ocrLang);
+            ocrPages++;
+
+            if (options.ocrForce || !hasMeaningfulText(text)) {
+              ocrText = ocrResult.text;
+              usedOcr = true;
+              if (typeof onProgress === "function") {
+                onProgress(
+                  i + 1,
+                  pageNumbers.length,
+                  pageNumber,
+                  `OCR halaman ${pageNumber} (kepercayaan ${ocrResult.confidence}%)`
+                );
+              }
+            }
+          } catch (ocrErr) {
+            console.error(`OCR gagal halaman ${pageNumber}:`, ocrErr);
+            // Tetap gunakan teks ekstraksi normal jika OCR gagal
+          }
+        }
+
         const header = buildPageHeader(options.marker, pageNumber);
-        parts.push(header ? `${header}\n${text}` : text);
+        parts.push(header ? `${header}\n${ocrText}` : ocrText);
 
         if (typeof onProgress === "function") {
           onProgress(i + 1, pageNumbers.length, pageNumber);
         }
 
         page.cleanup();
-        // Beri kesempatan UI bernapas pada dokumen besar
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
 
@@ -657,7 +789,8 @@
         text: joined,
         pageCount: pageNumbers.length,
         totalPages: pdf.numPages,
-        scanned: joined.length === 0,
+        scanned: !hasMeaningfulText(joined) && pageNumbers.length > 0,
+        ocrPages,
       };
     } finally {
       await pdf.destroy();
@@ -688,19 +821,21 @@
       f.status = "working";
       f.error = undefined;
       f.text = undefined;
+      f.usedOcr = 0;
       render();
 
       try {
-        const result = await extractPdf(f.file, options, (donePages, totalPages) => {
+        const result = await extractPdf(f.file, options, (donePages, totalPages, pageNum, ocrMsg) => {
           const fileFraction = donePages / totalPages;
           const overall = (completed + fileFraction) / targets.length;
-          setProgress(overall * 100, `${f.name} — halaman ${donePages}/${totalPages}`);
+          setProgress(overall * 100, ocrMsg || `${f.name} — halaman ${donePages}/${totalPages}`);
         });
 
         f.text = result.text;
         f.pageCount = result.pageCount;
         f.totalPages = result.totalPages;
         f.scanned = result.scanned;
+        f.usedOcr = result.ocrPages || 0;
         f.status = "done";
       } catch (err) {
         console.error(err);
@@ -753,6 +888,7 @@
       return "File tidak valid atau rusak. Pastikan file benar-benar PDF.";
     }
     if (/worker/i.test(message)) return "Gagal memuat pemroses PDF. Muat ulang halaman lalu coba lagi.";
+    if (/tesseract|ocr/i.test(message)) return "Mesin OCR gagal memproses halaman ini. Coba tanpa OCR atau periksa konsol browser.";
     return message || "Gagal mengekstrak teks dari PDF ini.";
   }
 
